@@ -1,4 +1,10 @@
-% Hejhopp - Main script (Color-only vs Color+Structure, multiple DB sizes, metrics)
+% Hejhopp - Main script
+% Compares:
+%   Optimization: Global vs ImageDependent (per-original DB preselection)
+%   Method:       ColorOnly vs ColorStruct
+%   DB sizes:     800, 200, 100, 50
+% Outputs mosaics + a single CSV with metrics for all combinations.
+
 clc; clear; close all;
 
 % If you keep code in subfolders, uncomment:
@@ -24,84 +30,117 @@ fprintf("DB images found: %d\n", dbCount);
 tileSize = [32 32];
 gridSize = [60 80];
 
-% Load/build DB cache (IMPORTANT: delete cache if you changed preprocess_db)
+% Load/build DB cache (rebuild if struct fields missing)
 cachePath = fullfile("data","db_cache.mat");
-
-if ~isfile(cachePath)
-    db = preprocess_db(dbFolder, tileSize); % should now also create db.structFeat/db.structBins
-    save(cachePath, "db", "-v7.3");
-else
+needsRebuild = true;
+if isfile(cachePath)
     S = load(cachePath, "db");
     db = S.db;
+    needsRebuild = ~isfield(db,"structFeat") || ~isfield(db,"structBins");
 end
-disp(fieldnames(db));
+if needsRebuild
+    fprintf("Rebuilding DB cache...\n");
+    db = preprocess_db(dbFolder, tileSize);
+    save(cachePath, "db", "-v7.3");
+end
+
 % Experiment settings
 Ks = [800, 200, 100, 50];
-methods = ["ColorOnly", "ColorStruct"];   % compare both approaches
+methods  = ["ColorOnly", "ColorStruct"];   % selection rule
+optModes = ["Global", "ImageDependent"];   % DB optimization mode
 
 % Parameters for Color+Structure method
 Kc = 15;        % shortlist size (top-K by Lab color distance)
 wStruct = 0.5;  % structure weight
 
+% Parameter for ImageDependent preselection pool
+M0 = 300;       % choose 200-400; 300 is a good default
+
 % Results table schema
-allRows = table('Size',[0 8], ...
-    'VariableTypes', {'string','string','double','double','double','double','double','double'}, ...
-    'VariableNames', {'Original','Method','K','PSNR','SSIM','S_CIELAB','MSE','DeltaEab'});
+allRows = table('Size',[0 9], ...
+    'VariableTypes', {'string','string','string','double','double','double','double','double','double'}, ...
+    'VariableNames', {'Original','OptMode','Method','K','PSNR','SSIM','S_CIELAB','MSE','DeltaEab'});
 
 for p = 1:numel(origPaths)
     origPath = string(origPaths(p));
     orig = imread(origPath);
     [~, baseName, ~] = fileparts(origPath);
 
-    for K = Ks
-        % Reduce DB if needed
-        if K == size(db.meanLab, 1)
-            dbK = db;
+    for o = 1:numel(optModes)
+        optMode = optModes(o);
+
+        % Build the DB base depending on original image (image-dependent optimization)
+        if optMode == "Global"
+            dbBase = db;
         else
-            dbK = reduce_db_fps(db, K, 42);
-        end
-        if K < size(db.meanLab,1)
-            assert(isfield(dbK,"structFeat"), "dbK missing structFeat after reduction");
+            % Requires: select_db_for_original.m
+            dbBase = select_db_for_original(db, orig, tileSize, gridSize, M0);
         end
 
-        for m = 1:numel(methods)
-            method = methods(m);
+        for kIdx = 1:numel(Ks)
+            K = Ks(kIdx);
 
-            % Build mosaic
-            if method == "ColorOnly"
-                mosaic = build_mosaic(orig, dbK, tileSize, gridSize);
+            % Robust reduction logic:
+            % If requested K is >= available images, just use all images in dbBase.
+            Nbase = size(dbBase.meanLab, 1);
+            fprintf("OptMode=%s baseName=%s Nbase=%d K=%d\n", optMode, baseName, Nbase, K);
+
+            if K >= Nbase
+                dbK = dbBase;
             else
-                mosaic = build_mosaic_color_structure(orig, dbK, tileSize, gridSize, Kc, wStruct);
+                dbK = reduce_db_fps(dbBase, K, 42); % must copy structFeat/structBins too
             end
 
-            % Save mosaic
-            outPath = fullfile(outFolder, sprintf("mosaic_%s_%s_K%d.png", baseName, method, K));
-            imwrite(mosaic, outPath);
+            % If we will run structure method, ensure struct features exist
+            if any(methods == "ColorStruct")
+                assert(isfield(dbK,"structFeat") && isfield(dbK,"structBins"), ...
+                    "dbK missing structFeat/structBins. Fix reduce_db_fps to copy them.");
+            end
 
-            % Metrics
-            M = evaluate_metrics(imresize(orig, [size(mosaic,1) size(mosaic,2)]), mosaic);
+            for m = 1:numel(methods)
+                method = methods(m);
 
-            % Add row (must match allRows schema exactly)
-            row = table('Size',[1 8], ...
-                'VariableTypes', {'string','string','double','double','double','double','double','double'}, ...
-                'VariableNames', {'Original','Method','K','PSNR','SSIM','S_CIELAB','MSE','DeltaEab'});
+                % Build mosaic
+                if method == "ColorOnly"
+                    mosaic = build_mosaic(orig, dbK, tileSize, gridSize);
+                else
+                    mosaic = build_mosaic_color_structure(orig, dbK, tileSize, gridSize, Kc, wStruct);
+                end
 
-            row.Original  = origPath;
-            row.Method    = method;
-            row.K         = double(K);
-            row.PSNR      = double(M.PSNR);
-            row.SSIM      = double(M.SSIM);
-            row.S_CIELAB  = double(M.S_CIELAB);
-            row.MSE       = double(M.MSE);
-            row.DeltaEab  = double(M.DeltaEab);
+                % Save mosaic
+                outPath = fullfile(outFolder, sprintf("mosaic_%s_%s_%s_K%d.png", baseName, optMode, method, K));
+                imwrite(mosaic, outPath);
 
-            allRows = [allRows; row]; %#ok<AGROW>
+                % Metrics
+                M = evaluate_metrics(imresize(orig, [size(mosaic,1) size(mosaic,2)]), mosaic);
+
+                % Add row
+                row = table('Size',[1 9], ...
+                    'VariableTypes', {'string','string','string','double','double','double','double','double','double'}, ...
+                    'VariableNames', {'Original','OptMode','Method','K','PSNR','SSIM','S_CIELAB','MSE','DeltaEab'});
+
+                row.Original  = origPath;
+                row.OptMode   = optMode;
+                row.Method    = method;
+                row.K         = double(K);
+                row.PSNR      = double(M.PSNR);
+                row.SSIM      = double(M.SSIM);
+                row.S_CIELAB  = double(M.S_CIELAB);
+                row.MSE       = double(M.MSE);
+                row.DeltaEab  = double(M.DeltaEab);
+
+                allRows = [allRows; row]; %#ok<AGROW>
+            end
         end
     end
 end
 
 % Export metrics
-metricsPath = fullfile(outFolder, "metrics_color_vs_structure.csv");
+metricsPath = fullfile(outFolder, "metrics_grade4_full.csv");
 writetable(allRows, metricsPath);
 disp(allRows);
 fprintf("Wrote metrics to %s\n", metricsPath);
+
+% Helpful debugging (uncomment if you suspect path collisions)
+% disp("reduce_db_fps resolution:");
+% which reduce_db_fps -all

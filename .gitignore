@@ -1,0 +1,41 @@
+# =========================
+# DATASETS (do not commit)
+# =========================
+data/db/
+data/images/
+data/*.zip
+data/*.tar
+data/*.gz
+
+# DB cache (auto-generated)
+data/db_cache.mat
+
+# =========================
+# OUTPUT FILES
+# =========================
+results/
+*.png
+*.jpg
+*.jpeg
+*.tif
+
+# =========================
+# MATLAB
+# =========================
+*.asv
+*.autosave
+*.log
+slprj/
+codegen/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Editors
+# =========================
+.vscode/
+.idea/

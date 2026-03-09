@@ -1,10 +1,10 @@
 function mosaic = build_mosaic_color_structure(orig, db, tileSize, gridSize, Kc, wStruct)
-% Two-stage selection:
-% 1) shortlist Kc candidates by Lab mean distance
-% 2) choose best by structure distance (gradient hist)
-%
-% Kc: shortlist size (e.g., 10 or 20)
-% wStruct: weight for structure term (e.g., 0.5). Color term is always included.
+    % dela upp originalbilden i tiles
+    % beräkna färg för varje tile
+    % välj de Kc mest färglika databilderna
+    % jämför struktur
+    % välj bästa match
+    % bygg mosaiken
 
     if nargin < 5, Kc = 15; end
     if nargin < 6, wStruct = 0.5; end

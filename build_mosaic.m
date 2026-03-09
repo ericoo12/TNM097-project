@@ -1,4 +1,11 @@
 function mosaic = build_mosaic(orig, db, tileSize, gridSize)
+    % skalar originalbilden
+    % delar upp den i tiles
+    % beräknar färg för varje tile
+    % hittar databilden med mest liknande färg
+    % placerar databilden i mosaiken
+    % Resultatet blir en fotomosaik.
+
     orig = ensure_rgb_uint8(orig);
 
     targetH = gridSize(1) * tileSize(1);

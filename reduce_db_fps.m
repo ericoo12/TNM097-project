@@ -1,7 +1,9 @@
 function dbSmall = reduce_db_fps(db, K, seed)
-% Reduce DB to K representative images via farthest-point sampling (FPS)
-% on mean Lab colors. Toolbox-free.
-% IMPORTANT: also carries over structure features for betyg 4.
+    % tar alla bilders färgfeatures
+    % väljer en slumpmässig startbild
+    % väljer sedan bilder som ligger så långt bort som möjligt i färgrymden
+    % returnerar K representativa bilder
+    % Det gör att en mindre databas fortfarande täcker många olika färger.
 
     if nargin < 3, seed = 42; end
     rng(seed);
